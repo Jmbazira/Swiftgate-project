@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SWIFTGATE | Sequential Verification</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes scan {
+      0% { top: 0%; opacity: 0; }
+      50% { opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+    .scan-line {
+      height: 2px;
+      background: #3b82f6;
+      box-shadow: 0 0 15px #3b82f6;
+      position: absolute;
+      width: 100%;
+      z-index: 10;
+      animation: scan 2s linear infinite;
+    }
+    .preview-box {
+      aspect-ratio: 1/1;
+      background: #1e293b;
+      border: 2px solid #3b82f6;
+      position: relative;
+      transition: all 0.5s ease;
+    }
+    .captured-flash {
+      animation: flash 0.5s ease-out;
+    }
+    @keyframes flash {
+      0% { background: white; }
+      100% { background: transparent; }
+    }
+    video, img { object-fit: cover; width: 100%; height: 100%; border-radius: 1rem; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+  <div class="mb-6 text-center">
+    <h1 class="text-3xl font-extrabold tracking-tight">SWIFT<span class="text-blue-500">GATE</span></h1>
+    <p id="instructionText" class="text-blue-400 mt-2 font-medium animate-pulse">STEP 1: POSITION PASSPORT IN VIEW</p>
+  </div>
+
+  <div class="bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl w-full max-w-md">
+    
+    <div class="mb-6">
+      <label class="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2 block">Model Selection</label>
+      <select id="modelSelect" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer">
+        <option value="Facenet">FaceNet (Baseline)</option>
+        <option value="ArcFace">ArcFace </option>
+        <option value="AdaFace">AdaFace </option>
+        <option value="MagFace">MagFace </option>
+        <option value="GhostFaceNet">GhostFaceNet</option>
+        <option value="ElasticFace">ElasticFace</option>
+      </select>
+    </div>
+
+    <div class="relative group mb-8">
+      <div id="mainDisplayBox" class="preview-box relative flex flex-col items-center justify-center rounded-2xl overflow-hidden shadow-inner">
+        <div id="scannerLine" class="scan-line"></div>
+        <video id="videoFeed" autoplay playsinline class="bg-black"></video>
+        <img id="passportStatic" class="hidden absolute inset-0 opacity-100 transition-opacity duration-500">
+        <div id="modeBadge" class="absolute top-4 left-4 bg-blue-600 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
+            Scanning Passport
+        </div>
+      </div>
+    </div>
+
+    <canvas id="captureCanvas" class="hidden"></canvas>
+
+    <button id="actionBtn" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-bold text-lg transition-all shadow-lg">
+      CAPTURE PASSPORT
+    </button>
+
+    <div id="result" class="mt-6 hidden transition-all">
+        <div id="resultCard" class="p-6 rounded-2xl bg-slate-800/50 border border-slate-700 text-center">
+          <div id="statusIcon" class="text-4xl mb-2"></div>
+          <div id="matchText" class="text-xl font-bold"></div>
+          <div id="confidenceScore" class="text-slate-400 text-sm mt-1"></div>
+          <div id="modelLabel" class="text-[10px] text-blue-400 uppercase tracking-widest mt-2"></div>
+          <button onclick="resetSystem()" class="mt-4 text-xs text-blue-500 underline uppercase tracking-widest">Restart Process</button>
+        </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = "http://127.0.0.1:8000/verify";
+    const video = document.getElementById('videoFeed');
+    const canvas = document.getElementById('captureCanvas');
+    const actionBtn = document.getElementById('actionBtn');
+    const modelSelect = document.getElementById('modelSelect');
+    const instructionText = document.getElementById('instructionText');
+    const modeBadge = document.getElementById('modeBadge');
+    const passportStatic = document.getElementById('passportStatic');
+    const scannerLine = document.getElementById('scannerLine');
+
+    let passportBlob = null;
+    let isPassportCaptured = false;
+
+    async function startCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+    }
+
+    function getBlobFromVideo() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      return new Promise(res => canvas.toBlob(res, 'image/jpeg'));
+    }
+
+    actionBtn.addEventListener('click', async () => {
+      if (!isPassportCaptured) {
+        passportBlob = await getBlobFromVideo();
+        passportStatic.src = URL.createObjectURL(passportBlob);
+        passportStatic.classList.remove('hidden');
+        document.getElementById('mainDisplayBox').classList.add('captured-flash');
+        isPassportCaptured = true;
+        
+        // Step 1 -> Step 2 Transitions
+        instructionText.innerText = "STEP 2: LOOK DIRECTLY AT CAMERA";
+        instructionText.classList.replace('text-blue-400', 'text-green-400');
+        modeBadge.innerText = "Scanning Live Face";
+        modeBadge.classList.replace('bg-blue-600', 'bg-green-600');
+        actionBtn.innerText = "VERIFY IDENTITY";
+        actionBtn.classList.replace('bg-blue-600', 'bg-green-600');
+        
+        setTimeout(() => { passportStatic.style.opacity = "0.3"; }, 800);
+      } else {
+        scannerLine.style.display = 'block';
+        actionBtn.disabled = true;
+        actionBtn.innerText = "PROCESSING...";
+
+        const liveFaceBlob = await getBlobFromVideo();
+        const selectedModel = modelSelect.value; // Get the user's choice
+        
+        const formData = new FormData();
+        formData.append("image1", passportBlob, "passport.jpg"); 
+        formData.append("image2", liveFaceBlob, "live.jpg");
+        formData.append("model_name", selectedModel); // Send model name to backend
+
+        try {
+          const response = await fetch(API_URL, { method: "POST", body: formData });
+          const data = await response.json();
+          showResult(data, selectedModel);
+        } catch (err) {
+          alert("Connection Error. Check backend.");
+          resetSystem();
+        }
+      }
+    });
+
+    function showResult(data, modelName) {
+      const resDiv = document.getElementById('result');
+      resDiv.classList.remove('hidden');
+      scannerLine.style.display = 'none';
+      
+      if (data.verified) {
+        document.getElementById('statusIcon').innerHTML = '✅';
+        document.getElementById('matchText').innerText = 'ACCESS GRANTED';
+        document.getElementById('matchText').style.color = '#4ade80';
+      } else {
+        document.getElementById('statusIcon').innerHTML = '❌';
+        document.getElementById('matchText').innerText = 'IDENTITY MISMATCH';
+        document.getElementById('matchText').style.color = '#f87171';
+      }
+      document.getElementById('confidenceScore').innerText = `Similarity Score: ${(data.similarity * 100).toFixed(2)}%`;
+      document.getElementById('modelLabel').innerText = `Processed via: ${modelName}`;
+      actionBtn.innerText = "PROCESS COMPLETE";
+    }
+
+    function resetSystem() { location.reload(); }
+    startCamera();
+  </script>
+</body>
